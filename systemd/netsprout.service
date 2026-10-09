@@ -10,7 +10,7 @@ Conflicts=shutdown.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/cloud-network-config
+ExecStart=/usr/local/bin/netsprout
 
 [Install]
 WantedBy=default.target
