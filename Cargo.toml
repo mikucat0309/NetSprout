@@ -1,0 +1,16 @@
+[package]
+name = "netsprout"
+version = "0.1.0"
+edition = "2024"
+description = "Stateless cloud network config generator"
+license = "GPL-3.0-only"
+readme = "README.md"
+
+[dependencies]
+ipnet = "2"
+rustix = { version = "1.1.5", features = ["mount"] }
+saphyr = "0.1.0"
+
+[profile.release]
+strip = true
+lto = true

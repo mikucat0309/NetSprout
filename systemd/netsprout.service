@@ -1,0 +1,16 @@
+[Unit]
+Description=Stateless cloud network config generator
+DefaultDependencies=no
+
+Wants=network-pre.target
+Before=network-pre.target
+Before=shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/cloud-network-config
+
+[Install]
+WantedBy=default.target
