@@ -6,8 +6,15 @@ Stateless cloud network config generator
 
 ### Data Source
 
-- NoCloud
-  - labeled filesystem (iso9660 / vfat + LABEL=CIDATA)
+- [x] NoCloud
+  - [ ] Discovery Method
+    - [ ] kernel command line
+    - [ ] serial number
+  - [ ] Source
+    - [ ] Local filesystem
+    - [x] Drive with labeled filesystem (iso9660 / vfat + LABEL=CIDATA)
+    - [ ] Custom webserver
+- [x] Fallback DHCP
 
 ### Renderer
 

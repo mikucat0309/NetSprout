@@ -18,6 +18,25 @@ pub fn render(config: &NetworkConfig) -> Vec<RenderedFile> {
         .collect()
 }
 
+/// Config used when there is no seed: DHCP on every physical Ethernet link.
+///
+/// `Kind=!*` leaves out virtual links (bridges, veth, tunnels) so that only
+/// real NICs are configured.
+pub fn fallback() -> Vec<RenderedFile> {
+    vec![RenderedFile {
+        name: format!("{FILE_PREFIX}fallback.network"),
+        content: "\
+[Match]
+Type=ether
+Kind=!*
+
+[Network]
+DHCP=yes
+"
+        .to_string(),
+    }]
+}
+
 fn render_network(eth: &Ethernet) -> String {
     let mut out = String::from("[Match]\n");
     match &eth.matches {
@@ -488,6 +507,24 @@ IPv6AcceptRA=no
 [DHCPv6]
 UseDNS=no
 WithoutRA=solicit
+"#,
+        );
+    }
+
+    #[test]
+    fn fallback_is_dhcp_on_physical_links() {
+        let files = fallback();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].name, "10-cloud-network-config-fallback.network");
+        assert_content(
+            &files[0],
+            r#"
+[Match]
+Type=ether
+Kind=!*
+
+[Network]
+DHCP=yes
 "#,
         );
     }

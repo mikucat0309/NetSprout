@@ -8,11 +8,18 @@ use std::process::ExitCode;
 use render::networkd;
 
 fn main() -> ExitCode {
-    let config = match source::fetch() {
-        Ok(config) => config,
-        Err(source::Error::NotFound) => {
-            eprintln!("{}", source::Error::NotFound);
-            return ExitCode::SUCCESS;
+    let (files, names_ok) = match source::fetch() {
+        Ok(config) => {
+            let renamed = net::apply_names(&config);
+            if let Err(e) = &renamed {
+                eprintln!("set-name: {e}");
+            }
+            (networkd::render(&config), renamed.is_ok())
+        }
+        // Without a seed, still bring the network up so the machine stays reachable.
+        Err(e @ source::Error::NotFound) => {
+            eprintln!("{e}, falling back to DHCP");
+            (networkd::fallback(), true)
         }
         Err(e) => {
             eprintln!("{e}");
@@ -20,12 +27,6 @@ fn main() -> ExitCode {
         }
     };
 
-    let renamed = net::apply_names(&config);
-    if let Err(e) = &renamed {
-        eprintln!("set-name: {e}");
-    }
-
-    let files = networkd::render(&config);
     if let Err(e) = render::replace(
         Path::new(networkd::OUTPUT_DIR),
         networkd::FILE_PREFIX,
@@ -37,8 +38,9 @@ fn main() -> ExitCode {
     for file in &files {
         eprintln!("wrote {}/{}", networkd::OUTPUT_DIR, file.name);
     }
-    if renamed.is_err() {
-        return ExitCode::FAILURE;
+    if names_ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
     }
-    ExitCode::SUCCESS
 }
