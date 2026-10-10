@@ -48,7 +48,7 @@ Stateless cloud network config generator
   - [x] gateway4
   - [x] gateway6
   - [ ] optional
-  - [ ] mtu
+  - [x] mtu
   - [x] nameservers
     - [x] search
     - [x] addresses

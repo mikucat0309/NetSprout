@@ -35,6 +35,10 @@ fn render_network(eth: &Ethernet) -> String {
         None => writeln!(out, "Name={}", eth.name).unwrap(),
     }
 
+    if let Some(mtu) = eth.mtu {
+        write!(out, "\n[Link]\nMTUBytes={mtu}\n").unwrap();
+    }
+
     out.push_str("\n[Network]\n");
     let dhcp4 = eth.dhcp4.unwrap_or(false);
     let dhcp6 = eth.dhcp6.unwrap_or(false);
@@ -383,6 +387,32 @@ DHCP=ipv4
 
 [DHCPv4]
 UseDNS=no
+"#,
+        );
+    }
+
+    #[test]
+    fn mtu() {
+        let files = render_str(
+            r#"
+version: 2
+ethernets:
+  eth0:
+    mtu: 9000
+    dhcp4: true
+"#,
+        );
+        assert_content(
+            &files[0],
+            r#"
+[Match]
+Name=eth0
+
+[Link]
+MTUBytes=9000
+
+[Network]
+DHCP=ipv4
 "#,
         );
     }
