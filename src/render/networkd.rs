@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use crate::source::{Ethernet, NetworkConfig, Route};
+use crate::source::{DhcpOverrides, Ethernet, NetworkConfig, Route, UseDomains};
 
 use super::RenderedFile;
 
@@ -36,7 +36,9 @@ fn render_network(eth: &Ethernet) -> String {
     }
 
     out.push_str("\n[Network]\n");
-    let dhcp = match (eth.dhcp4.unwrap_or(false), eth.dhcp6.unwrap_or(false)) {
+    let dhcp4 = eth.dhcp4.unwrap_or(false);
+    let dhcp6 = eth.dhcp6.unwrap_or(false);
+    let dhcp = match (dhcp4, dhcp6) {
         (true, true) => Some("yes"),
         (true, false) => Some("ipv4"),
         (false, true) => Some("ipv6"),
@@ -63,10 +65,75 @@ fn render_network(eth: &Ethernet) -> String {
         }
     }
 
+    if dhcp4 {
+        render_dhcp4(&mut out, &eth.dhcp4_overrides);
+    }
+    if dhcp6 {
+        render_dhcp6(&mut out, &eth.dhcp6_overrides);
+    }
+
     for route in &eth.routes {
         render_route(&mut out, route);
     }
     out
+}
+
+fn yes_no(b: bool) -> &'static str {
+    if b { "yes" } else { "no" }
+}
+
+/// Keys shared by `[DHCPv4]` and `[DHCPv6]`.
+fn common_dhcp_keys(o: &DhcpOverrides) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut flag = |key: &str, v: Option<bool>| {
+        if let Some(v) = v {
+            keys.push(format!("{key}={}", yes_no(v)));
+        }
+    };
+    flag("UseDNS", o.use_dns);
+    flag("UseNTP", o.use_ntp);
+    flag("SendHostname", o.send_hostname);
+    flag("UseHostname", o.use_hostname);
+    if let Some(hostname) = &o.hostname {
+        keys.push(format!("Hostname={hostname}"));
+    }
+    if let Some(d) = o.use_domains {
+        let v = match d {
+            UseDomains::Yes => "yes",
+            UseDomains::No => "no",
+            UseDomains::Route => "route",
+        };
+        keys.push(format!("UseDomains={v}"));
+    }
+    keys
+}
+
+fn render_section(out: &mut String, section: &str, keys: &[String]) {
+    if keys.is_empty() {
+        return;
+    }
+    write!(out, "\n[{section}]\n").unwrap();
+    for key in keys {
+        writeln!(out, "{key}").unwrap();
+    }
+}
+
+fn render_dhcp4(out: &mut String, o: &DhcpOverrides) {
+    let mut keys = common_dhcp_keys(o);
+    if let Some(v) = o.use_mtu {
+        keys.push(format!("UseMTU={}", yes_no(v)));
+    }
+    if let Some(v) = o.use_routes {
+        keys.push(format!("UseRoutes={}", yes_no(v)));
+    }
+    if let Some(metric) = o.route_metric {
+        keys.push(format!("RouteMetric={metric}"));
+    }
+    render_section(out, "DHCPv4", &keys);
+}
+
+fn render_dhcp6(out: &mut String, o: &DhcpOverrides) {
+    render_section(out, "DHCPv6", &common_dhcp_keys(o));
 }
 
 fn render_route(out: &mut String, route: &Route) {
@@ -228,6 +295,94 @@ ethernets:
 MACAddress=52:54:00:12:34:56
 
 [Network]
+"#,
+        );
+    }
+
+    #[test]
+    fn dhcp_overrides() {
+        let files = render_str(
+            r#"
+version: 2
+ethernets:
+  eth0:
+    dhcp4: true
+    dhcp6: true
+    dhcp4-overrides:
+      use-dns: false
+      use-ntp: true
+      send-hostname: true
+      use-hostname: false
+      hostname: web1
+      use-domains: route
+      use-mtu: true
+      use-routes: false
+      route-metric: 200
+    dhcp6-overrides:
+      use-dns: false
+      use-domains: true
+      route-metric: 300
+    routes:
+      - to: 10.0.0.0/8
+        via: 192.168.1.254
+"#,
+        );
+        assert_content(
+            &files[0],
+            r#"
+[Match]
+Name=eth0
+
+[Network]
+DHCP=yes
+
+[DHCPv4]
+UseDNS=no
+UseNTP=yes
+SendHostname=yes
+UseHostname=no
+Hostname=web1
+UseDomains=route
+UseMTU=yes
+UseRoutes=no
+RouteMetric=200
+
+[DHCPv6]
+UseDNS=no
+UseDomains=yes
+
+[Route]
+Destination=10.0.0.0/8
+Gateway=192.168.1.254
+"#,
+        );
+    }
+
+    #[test]
+    fn dhcp_overrides_need_dhcp_enabled() {
+        let files = render_str(
+            r#"
+version: 2
+ethernets:
+  eth0:
+    dhcp4: true
+    dhcp4-overrides:
+      use-dns: false
+    dhcp6-overrides:
+      use-dns: false
+"#,
+        );
+        assert_content(
+            &files[0],
+            r#"
+[Match]
+Name=eth0
+
+[Network]
+DHCP=ipv4
+
+[DHCPv4]
+UseDNS=no
 "#,
         );
     }

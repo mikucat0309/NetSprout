@@ -27,8 +27,23 @@ Stateless cloud network config generator
   - [ ] renderer
   - [x] dhcp4
   - [x] dhcp6
-  - [ ] dhcp4-overrides
-  - [ ] dhcp6-overrides
+  - [x] dhcp4-overrides
+    - [x] use-dns
+    - [x] use-ntp
+    - [x] send-hostname
+    - [x] use-hostname
+    - [x] use-mtu
+    - [x] hostname
+    - [x] use-routes
+    - [x] route-metric
+    - [x] use-domains
+  - [x] dhcp6-overrides
+    - [x] use-dns
+    - [x] use-ntp
+    - [x] send-hostname
+    - [x] use-hostname
+    - [x] hostname
+    - [x] use-domains
   - [x] addresses
   - [x] gateway4
   - [x] gateway6

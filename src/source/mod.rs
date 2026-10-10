@@ -2,7 +2,7 @@ mod config;
 mod error;
 mod nocloud;
 
-pub use config::{Ethernet, NetworkConfig, Route};
+pub use config::{DhcpOverrides, Ethernet, NetworkConfig, Route, UseDomains};
 pub use error::Error;
 
 /// Locate the NoCloud seed and parse its network-config.

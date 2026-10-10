@@ -20,6 +20,8 @@ pub struct Ethernet {
     pub set_name: Option<String>,
     pub dhcp4: Option<bool>,
     pub dhcp6: Option<bool>,
+    pub dhcp4_overrides: DhcpOverrides,
+    pub dhcp6_overrides: DhcpOverrides,
     pub addresses: Vec<IpNet>,
     pub gateway4: Option<Ipv4Addr>,
     pub gateway6: Option<Ipv6Addr>,
@@ -31,6 +33,28 @@ pub struct Ethernet {
 pub struct Match {
     pub name: Option<String>,
     pub macaddress: Option<String>,
+}
+
+/// `dhcp4-overrides` / `dhcp6-overrides`; unset fields keep the renderer's defaults.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DhcpOverrides {
+    pub use_dns: Option<bool>,
+    pub use_ntp: Option<bool>,
+    pub send_hostname: Option<bool>,
+    pub use_hostname: Option<bool>,
+    pub use_mtu: Option<bool>,
+    pub hostname: Option<String>,
+    pub use_routes: Option<bool>,
+    pub route_metric: Option<u32>,
+    pub use_domains: Option<UseDomains>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UseDomains {
+    Yes,
+    No,
+    /// Use the domains for routing DNS queries only, not for searching.
+    Route,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +91,17 @@ fn get_bool(node: &Yaml, key: &str) -> Result<Option<bool>, Error> {
             .as_bool()
             .map(Some)
             .ok_or_else(|| invalid(format!("`{key}` must be a boolean"))),
+    }
+}
+
+fn get_u32(node: &Yaml, key: &str) -> Result<Option<u32>, Error> {
+    match node.as_mapping_get(key) {
+        None => Ok(None),
+        Some(v) => v
+            .as_integer()
+            .and_then(|n| u32::try_from(n).ok())
+            .map(Some)
+            .ok_or_else(|| invalid(format!("`{key}` must be a non-negative integer"))),
     }
 }
 
@@ -226,11 +261,52 @@ impl Ethernet {
             set_name,
             dhcp4: get_bool(node, "dhcp4")?,
             dhcp6: get_bool(node, "dhcp6")?,
+            dhcp4_overrides: DhcpOverrides::parse(node, "dhcp4-overrides")?,
+            dhcp6_overrides: DhcpOverrides::parse(node, "dhcp6-overrides")?,
             addresses,
             gateway4: get_parsed(node, "gateway4")?,
             gateway6: get_parsed(node, "gateway6")?,
             nameservers,
             routes,
+        })
+    }
+}
+
+impl DhcpOverrides {
+    fn parse(parent: &Yaml, key: &str) -> Result<Self, Error> {
+        let Some(node) = parent.as_mapping_get(key) else {
+            return Ok(Self::default());
+        };
+        if !node.is_mapping() {
+            return Err(invalid(format!("`{key}` must be a mapping")));
+        }
+        let ctx = |e: Error| match e {
+            Error::Parse(msg) => invalid(format!("{key}: {msg}")),
+            e => e,
+        };
+        Self::parse_inner(node).map_err(ctx)
+    }
+
+    fn parse_inner(node: &Yaml) -> Result<Self, Error> {
+        let use_domains = match node.as_mapping_get("use-domains") {
+            None => None,
+            Some(v) => Some(match (v.as_bool(), v.as_str()) {
+                (Some(true), _) => UseDomains::Yes,
+                (Some(false), _) => UseDomains::No,
+                (_, Some("route")) => UseDomains::Route,
+                _ => return Err(invalid("`use-domains` must be a boolean or `route`")),
+            }),
+        };
+        Ok(DhcpOverrides {
+            use_dns: get_bool(node, "use-dns")?,
+            use_ntp: get_bool(node, "use-ntp")?,
+            send_hostname: get_bool(node, "send-hostname")?,
+            use_hostname: get_bool(node, "use-hostname")?,
+            use_mtu: get_bool(node, "use-mtu")?,
+            hostname: get_str(node, "hostname")?.map(str::to_string),
+            use_routes: get_bool(node, "use-routes")?,
+            route_metric: get_u32(node, "route-metric")?,
+            use_domains,
         })
     }
 }
@@ -246,14 +322,7 @@ impl Route {
             },
             s => parse_net(s).ok_or_else(|| invalid(format!("invalid route `to`: {s}")))?,
         };
-        let metric = match node.as_mapping_get("metric") {
-            None => None,
-            Some(v) => Some(
-                v.as_integer()
-                    .and_then(|m| u32::try_from(m).ok())
-                    .ok_or_else(|| invalid("route `metric` must be a non-negative integer"))?,
-            ),
-        };
+        let metric = get_u32(node, "metric")?;
         Ok(Route { to, via, metric })
     }
 }
@@ -302,6 +371,60 @@ network:
         assert_eq!(e.routes[0].to.to_string(), "::/0");
         assert_eq!(e.routes[1].metric, Some(100));
         assert_eq!(cfg.ethernets[1].dhcp4, Some(true));
+    }
+
+    #[test]
+    fn parse_dhcp_overrides() {
+        let cfg = NetworkConfig::parse(
+            r#"
+version: 2
+ethernets:
+  eth0:
+    dhcp4: true
+    dhcp4-overrides:
+      use-dns: false
+      use-ntp: true
+      send-hostname: true
+      use-hostname: false
+      use-mtu: true
+      hostname: web1
+      use-routes: false
+      route-metric: 200
+      use-domains: route
+    dhcp6-overrides:
+      use-domains: true
+"#,
+        )
+        .unwrap();
+        let e = &cfg.ethernets[0];
+        assert_eq!(
+            e.dhcp4_overrides,
+            DhcpOverrides {
+                use_dns: Some(false),
+                use_ntp: Some(true),
+                send_hostname: Some(true),
+                use_hostname: Some(false),
+                use_mtu: Some(true),
+                hostname: Some("web1".into()),
+                use_routes: Some(false),
+                route_metric: Some(200),
+                use_domains: Some(UseDomains::Route),
+            }
+        );
+        assert_eq!(e.dhcp6_overrides.use_domains, Some(UseDomains::Yes));
+    }
+
+    #[test]
+    fn rejects_bad_dhcp_overrides() {
+        for bad in [
+            "dhcp4-overrides: true",
+            "dhcp4-overrides:\n      use-dns: maybe",
+            "dhcp6-overrides:\n      route-metric: -1",
+            "dhcp4-overrides:\n      use-domains: search",
+        ] {
+            let yaml = format!("version: 2\nethernets:\n  eth0:\n    {bad}\n");
+            assert!(NetworkConfig::parse(&yaml).is_err(), "{bad}");
+        }
     }
 
     #[test]
