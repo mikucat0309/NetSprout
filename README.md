@@ -22,7 +22,7 @@ Stateless cloud network config generator
       - [x] name
       - [x] macaddress
       - [ ] driver
-  - [ ] set-name
+  - [x] set-name
   - [ ] wakeonlan
   - [ ] renderer
   - [x] dhcp4

@@ -22,7 +22,10 @@ fn render_network(eth: &Ethernet) -> String {
     let mut out = String::from("[Match]\n");
     match &eth.matches {
         Some(m) => {
-            if let Some(name) = &m.name {
+            // After `set-name` the original name no longer applies; the MAC
+            // (required with `set-name`) still matches whether or not the
+            // rename succeeded.
+            if let Some(name) = m.name.as_ref().filter(|_| eth.set_name.is_none()) {
                 writeln!(out, "Name={name}").unwrap();
             }
             if let Some(mac) = &m.macaddress {
@@ -131,7 +134,7 @@ Metric=100
     }
 
     #[test]
-    fn set_name_is_ignored() {
+    fn set_name_matches_by_mac() {
         let files = render_str(
             r#"
 version: 2
@@ -201,6 +204,30 @@ Name=en*
 
 [Network]
 DHCP=ipv4
+"#,
+        );
+    }
+
+    #[test]
+    fn set_name_drops_match_name() {
+        let files = render_str(
+            r#"
+version: 2
+ethernets:
+  nic0:
+    match:
+      name: "ens*"
+      macaddress: "52:54:00:12:34:56"
+    set-name: lan0
+"#,
+        );
+        assert_content(
+            &files[0],
+            r#"
+[Match]
+MACAddress=52:54:00:12:34:56
+
+[Network]
 "#,
         );
     }

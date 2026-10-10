@@ -1,3 +1,4 @@
+mod net;
 mod render;
 mod source;
 
@@ -19,6 +20,11 @@ fn main() -> ExitCode {
         }
     };
 
+    let renamed = net::apply_names(&config);
+    if let Err(e) = &renamed {
+        eprintln!("set-name: {e}");
+    }
+
     let files = networkd::render(&config);
     if let Err(e) = render::replace(
         Path::new(networkd::OUTPUT_DIR),
@@ -30,6 +36,9 @@ fn main() -> ExitCode {
     }
     for file in &files {
         eprintln!("wrote {}/{}", networkd::OUTPUT_DIR, file.name);
+    }
+    if renamed.is_err() {
+        return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
 }

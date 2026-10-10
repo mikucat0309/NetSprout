@@ -16,6 +16,8 @@ pub struct Ethernet {
     /// The key under `ethernets`; used as the interface name when `match` is absent.
     pub name: String,
     pub matches: Option<Match>,
+    /// Rename the interface selected by `match.macaddress` to this name.
+    pub set_name: Option<String>,
     pub dhcp4: Option<bool>,
     pub dhcp6: Option<bool>,
     pub addresses: Vec<IpNet>,
@@ -104,6 +106,16 @@ fn parse_net(s: &str) -> Option<IpNet> {
         .or_else(|| IpAddr::from_str(s).ok().map(IpNet::from))
 }
 
+/// Mirror the kernel's `dev_valid_name()`.
+fn is_valid_ifname(name: &str) -> bool {
+    // IFNAMSIZ is 16 including the trailing NUL.
+    !name.is_empty()
+        && name.len() < 16
+        && name != "."
+        && name != ".."
+        && !name.contains(|c: char| c == '/' || c == ':' || c.is_whitespace())
+}
+
 impl NetworkConfig {
     /// Parse a netplan-style (version 2) network-config document.
     pub fn parse(input: &str) -> Result<Self, Error> {
@@ -161,10 +173,19 @@ impl Ethernet {
         {
             return Err(invalid("`match` needs `name` or `macaddress`"));
         }
-        // Interfaces are never renamed; `match` still selects the interface
-        // under whatever name udev gave it.
-        if let Some(set_name) = get_str(node, "set-name")? {
-            eprintln!("ethernets.{name}: ignoring unsupported `set-name: {set_name}`");
+        let set_name = get_str(node, "set-name")?.map(str::to_string);
+        if let Some(set_name) = &set_name {
+            // Renaming identifies the interface by MAC only.
+            if matches
+                .as_ref()
+                .and_then(|m| m.macaddress.as_ref())
+                .is_none()
+            {
+                return Err(invalid("`set-name` requires `match.macaddress`"));
+            }
+            if !is_valid_ifname(set_name) {
+                return Err(invalid(format!("invalid `set-name`: {set_name}")));
+            }
         }
 
         let addresses = get_str_seq(node, "addresses")?
@@ -202,6 +223,7 @@ impl Ethernet {
         Ok(Ethernet {
             name: name.to_string(),
             matches,
+            set_name,
             dhcp4: get_bool(node, "dhcp4")?,
             dhcp6: get_bool(node, "dhcp6")?,
             addresses,
@@ -275,6 +297,7 @@ network:
             e.matches.as_ref().unwrap().macaddress.as_deref(),
             Some("52:54:00:ab:cd:ef")
         );
+        assert_eq!(e.set_name.as_deref(), Some("lan0"));
         assert_eq!(e.addresses.len(), 2);
         assert_eq!(e.routes[0].to.to_string(), "::/0");
         assert_eq!(e.routes[1].metric, Some(100));
@@ -287,8 +310,22 @@ network:
     }
 
     #[test]
-    fn ignores_set_name() {
-        let r = NetworkConfig::parse("version: 2\nethernets:\n  eth0:\n    set-name: foo\n");
-        assert!(r.is_ok());
+    fn set_name_requires_match_macaddress() {
+        let without_match = "version: 2\nethernets:\n  eth0:\n    set-name: foo\n";
+        assert!(NetworkConfig::parse(without_match).is_err());
+
+        let match_name =
+            "version: 2\nethernets:\n  eth0:\n    match:\n      name: eth0\n    set-name: foo\n";
+        assert!(NetworkConfig::parse(match_name).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_set_name() {
+        for bad in ["\"\"", "a/b", "a:b", "\"a b\"", "..", "sixteen-chars-xx"] {
+            let yaml = format!(
+                "version: 2\nethernets:\n  e:\n    match:\n      macaddress: \"52:54:00:00:00:01\"\n    set-name: {bad}\n"
+            );
+            assert!(NetworkConfig::parse(&yaml).is_err(), "{bad}");
+        }
     }
 }
