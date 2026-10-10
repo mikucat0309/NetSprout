@@ -51,6 +51,9 @@ fn render_network(eth: &Ethernet) -> String {
     if let Some(dhcp) = dhcp {
         writeln!(out, "DHCP={dhcp}").unwrap();
     }
+    if let Some(accept_ra) = eth.accept_ra {
+        writeln!(out, "IPv6AcceptRA={}", yes_no(accept_ra)).unwrap();
+    }
     for addr in &eth.addresses {
         writeln!(out, "Address={addr}").unwrap();
     }
@@ -73,7 +76,7 @@ fn render_network(eth: &Ethernet) -> String {
         render_dhcp4(&mut out, &eth.dhcp4_overrides);
     }
     if dhcp6 {
-        render_dhcp6(&mut out, &eth.dhcp6_overrides);
+        render_dhcp6(&mut out, &eth.dhcp6_overrides, eth.accept_ra);
     }
 
     for route in &eth.routes {
@@ -136,8 +139,14 @@ fn render_dhcp4(out: &mut String, o: &DhcpOverrides) {
     render_section(out, "DHCPv4", &keys);
 }
 
-fn render_dhcp6(out: &mut String, o: &DhcpOverrides) {
-    render_section(out, "DHCPv6", &common_dhcp_keys(o));
+fn render_dhcp6(out: &mut String, o: &DhcpOverrides, accept_ra: Option<bool>) {
+    let mut keys = common_dhcp_keys(o);
+    // networkd starts the DHCPv6 client on receiving an RA by default; with
+    // RAs ignored it would never start.
+    if accept_ra == Some(false) {
+        keys.push("WithoutRA=solicit".to_string());
+    }
+    render_section(out, "DHCPv6", &keys);
 }
 
 fn render_route(out: &mut String, route: &Route) {
@@ -413,6 +422,72 @@ MTUBytes=9000
 
 [Network]
 DHCP=ipv4
+"#,
+        );
+    }
+
+    #[test]
+    fn accept_ra() {
+        let files = render_str(
+            r#"
+version: 2
+ethernets:
+  eth0:
+    accept-ra: true
+  eth1:
+    dhcp4: true
+    accept-ra: false
+"#,
+        );
+        assert_content(
+            &files[0],
+            r#"
+[Match]
+Name=eth0
+
+[Network]
+IPv6AcceptRA=yes
+"#,
+        );
+        assert_content(
+            &files[1],
+            r#"
+[Match]
+Name=eth1
+
+[Network]
+DHCP=ipv4
+IPv6AcceptRA=no
+"#,
+        );
+    }
+
+    #[test]
+    fn dhcp6_without_ra() {
+        let files = render_str(
+            r#"
+version: 2
+ethernets:
+  eth0:
+    dhcp6: true
+    accept-ra: false
+    dhcp6-overrides:
+      use-dns: false
+"#,
+        );
+        assert_content(
+            &files[0],
+            r#"
+[Match]
+Name=eth0
+
+[Network]
+DHCP=ipv6
+IPv6AcceptRA=no
+
+[DHCPv6]
+UseDNS=no
+WithoutRA=solicit
 "#,
         );
     }

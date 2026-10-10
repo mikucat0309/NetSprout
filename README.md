@@ -58,7 +58,7 @@ Stateless cloud network config generator
     - [x] metric
     - [ ] mtu
     - [ ] table
-  - [ ] accept-ra
+  - [x] accept-ra
   - [ ] routing-policy
 - [ ] bonds
 - [ ] bridges

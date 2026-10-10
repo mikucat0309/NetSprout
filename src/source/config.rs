@@ -21,6 +21,7 @@ pub struct Ethernet {
     pub dhcp4: Option<bool>,
     pub dhcp6: Option<bool>,
     pub mtu: Option<u32>,
+    pub accept_ra: Option<bool>,
     pub dhcp4_overrides: DhcpOverrides,
     pub dhcp6_overrides: DhcpOverrides,
     pub addresses: Vec<IpNet>,
@@ -263,6 +264,7 @@ impl Ethernet {
             dhcp4: get_bool(node, "dhcp4")?,
             dhcp6: get_bool(node, "dhcp6")?,
             mtu: get_u32(node, "mtu")?,
+            accept_ra: get_bool(node, "accept-ra")?,
             dhcp4_overrides: DhcpOverrides::parse(node, "dhcp4-overrides")?,
             dhcp6_overrides: DhcpOverrides::parse(node, "dhcp6-overrides")?,
             addresses,
@@ -359,6 +361,7 @@ network:
     eth1:
       dhcp4: true
       mtu: 9000
+      accept-ra: false
 "#,
         )
         .unwrap();
@@ -376,6 +379,8 @@ network:
         assert_eq!(cfg.ethernets[1].dhcp4, Some(true));
         assert_eq!(e.mtu, None);
         assert_eq!(cfg.ethernets[1].mtu, Some(9000));
+        assert_eq!(e.accept_ra, None);
+        assert_eq!(cfg.ethernets[1].accept_ra, Some(false));
     }
 
     #[test]
@@ -427,6 +432,7 @@ ethernets:
             "dhcp6-overrides:\n      route-metric: -1",
             "dhcp4-overrides:\n      use-domains: search",
             "mtu: -1",
+            "accept-ra: 1",
             "mtu: \"1500\"",
         ] {
             let yaml = format!("version: 2\nethernets:\n  eth0:\n    {bad}\n");
